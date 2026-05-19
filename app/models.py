@@ -11,7 +11,7 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String)
     hashed_password: Mapped[str] = mapped_column(String)
-    is_admin: Mapped[bool] = mapped_column(Boolean)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
 
     watchlist_item: Mapped[list["WatchlistItem"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
