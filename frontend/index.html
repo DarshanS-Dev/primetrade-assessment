@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Primetrade</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-[#0f0f0f] font-sans text-white antialiased">
+  <nav id="top-nav" class="hidden border-b border-[#2a2a2a] bg-[#1a1a1a]">
+    <div class="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+      <span class="font-semibold">Primetrade</span>
+      <div class="flex items-center gap-3">
+        <span id="admin-badge" class="hidden rounded border border-[#3a3a3a] px-2 py-0.5 text-xs text-[#888]">Admin</span>
+        <button type="button" id="logout-btn" class="text-sm text-[#888] hover:text-white">Log out</button>
+      </div>
+    </div>
+  </nav>
+
+  <section id="auth-view" class="flex min-h-screen items-center justify-center px-4">
+    <div class="w-full max-w-sm rounded-lg border border-[#2a2a2a] bg-[#1a1a1a] p-8">
+      <h1 class="mb-8 text-center text-2xl font-semibold">Primetrade</h1>
+      <form id="auth-form" class="space-y-4">
+        <div>
+          <label class="mb-1 block text-sm text-[#888]" for="auth-email">Email</label>
+          <input id="auth-email" type="email" required class="w-full rounded border border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2 text-sm outline-none focus:border-[#555]" />
+        </div>
+        <div>
+          <label class="mb-1 block text-sm text-[#888]" for="auth-password">Password</label>
+          <input id="auth-password" type="password" required class="w-full rounded border border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2 text-sm outline-none focus:border-[#555]" />
+        </div>
+        <button type="submit" id="auth-submit" data-lbl="Log in" class="w-full rounded bg-white py-2 text-sm font-medium text-[#0f0f0f] disabled:opacity-50">Log in</button>
+      </form>
+      <p class="mt-6 text-center text-sm text-[#888]">
+        <button type="button" id="auth-toggle" class="text-white underline">Don't have an account? Register</button>
+      </p>
+      <p id="auth-error" class="mt-4 hidden text-sm text-red-400" role="alert"></p>
+      <p id="auth-success" class="mt-4 hidden text-sm text-green-400" role="status"></p>
+    </div>
+  </section>
+
+  <section id="dashboard-view" class="hidden mx-auto max-w-2xl px-4 py-10">
+    <h1 class="mb-6 border-b border-[#2a2a2a] pb-4 text-xl font-semibold">My watchlist</h1>
+    <form id="add-form" class="mb-4 flex gap-2">
+      <input id="add-input" type="text" placeholder="e.g. bitcoin" class="min-w-0 flex-1 rounded border border-[#2a2a2a] bg-[#1a1a1a] px-3 py-2 text-sm outline-none focus:border-[#555]" />
+      <button type="submit" id="add-btn" data-lbl="Add" class="rounded bg-white px-4 py-2 text-sm font-medium text-[#0f0f0f] disabled:opacity-50">Add</button>
+    </form>
+    <p id="add-error" class="mb-4 hidden text-sm text-red-400"></p>
+    <div id="list" class="space-y-2"></div>
+  </section>
+
+  <section id="admin-view" class="hidden mx-auto max-w-2xl border-t border-[#2a2a2a] px-4 pb-10 pt-8">
+    <h2 class="mb-6 text-lg font-semibold">Admin — All Watchlists</h2>
+    <div id="admin-list" class="space-y-8"></div>
+  </section>
+
+  <script>
+    const BASE_URL = "http://localhost:8000/api/v1", NET = "Something went wrong. Try again.";
+    const $ = (id) => document.getElementById(id);
+    let token = null, isAdmin = false, authMode = "login", editingId = null, items = [];
+
+    const authView = $("auth-view"), dashView = $("dashboard-view"), adminView = $("admin-view");
+    const topNav = $("top-nav"), adminBadge = $("admin-badge");
+    const authForm = $("auth-form"), authEmail = $("auth-email"), authPass = $("auth-password");
+    const authSubmit = $("auth-submit"), authToggle = $("auth-toggle"), authErr = $("auth-error"), authOk = $("auth-success");
+    const listEl = $("list"), addForm = $("add-form"), addInput = $("add-input"), addBtn = $("add-btn"), addErr = $("add-error");
+    const adminList = $("admin-list");
+
+    const hdrs = () => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
+    const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const price = (p) => p == null ? "—" : Number(p).toLocaleString("en-US", { style: "currency", currency: "USD" });
+    const apiMsg = (d) => !d ? "Something went wrong" : typeof d.detail === "string" ? d.detail : Array.isArray(d.detail) ? d.detail.map((e) => e.msg).join(" ") : d.message || "Something went wrong";
+    const show = (el, t) => { el.textContent = t || ""; el.classList.toggle("hidden", !t); };
+    const btnLoad = (b, on) => { b.disabled = on; const k = "lbl"; if (!b.dataset[k]) b.dataset[k] = b.textContent; b.textContent = on ? "Loading..." : b.dataset[k]; };
+
+    async function req(path, opts = {}) {
+      try {
+        const r = await fetch(BASE_URL + path, opts);
+        return { r, d: await r.json().catch(() => null) };
+      } catch { return { err: NET }; }
+    }
+
+    function setAuthMode(m) {
+      authMode = m;
+      show(authErr, ""); show(authOk, "");
+      authSubmit.textContent = authSubmit.dataset.lbl = m === "login" ? "Log in" : "Register";
+      authPass.autocomplete = m === "login" ? "current-password" : "new-password";
+      authToggle.textContent = m === "login" ? "Don't have an account? Register" : "Already have an account? Login";
+    }
+
+    function showAuth() {
+      authView.classList.remove("hidden"); dashView.classList.add("hidden"); adminView.classList.add("hidden");
+      topNav.classList.add("hidden"); adminBadge.classList.add("hidden");
+    }
+
+    function showDash() {
+      authView.classList.add("hidden"); dashView.classList.remove("hidden"); topNav.classList.remove("hidden");
+      adminBadge.classList.toggle("hidden", !isAdmin);
+      adminView.classList.toggle("hidden", !isAdmin);
+      loadList();
+      if (isAdmin) loadAdmin();
+    }
+
+    function rowHtml(it) {
+      const id = it.id, ed = String(editingId) === String(id);
+      if (ed) return `<div data-id="${id}" class="rounded border border-[#2a2a2a] bg-[#1a1a1a] px-4 py-3 text-sm"><div class="flex flex-wrap items-center gap-3"><input data-inp class="min-w-0 flex-1 rounded border border-[#2a2a2a] bg-[#0f0f0f] px-3 py-1.5" value="${esc(it.symbol)}" /><span class="text-[#888]">${price(it.price)}</span><button type="submit" data-act="save" class="rounded bg-white px-3 py-1.5 text-xs text-[#0f0f0f] disabled:opacity-50">Save</button></div><p data-err class="mt-2 hidden text-red-400"></p></div>`;
+      return `<div data-id="${id}" class="rounded border border-[#2a2a2a] bg-[#1a1a1a] px-4 py-3 text-sm"><div class="flex flex-wrap items-center gap-3"><span class="min-w-[6rem] font-medium uppercase">${esc(it.symbol)}</span><span class="text-[#888]">${price(it.price)}</span><div class="ml-auto flex gap-2"><button type="button" data-act="edit" class="rounded border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#888]">Edit</button><button type="button" data-act="del" class="rounded border border-[#2a2a2a] px-3 py-1.5 text-xs text-[#888]">Delete</button></div></div><p data-err class="mt-2 hidden text-red-400"></p></div>`;
+    }
+
+    function paintList() {
+      listEl.innerHTML = items.length ? items.map(rowHtml).join("") : '<p class="text-sm text-[#888]">No symbols yet.</p>';
+    }
+
+    async function loadList() {
+      listEl.innerHTML = '<p class="text-sm text-[#888]">Loading...</p>'; show(addErr, "");
+      const { r, d, err } = await req("/watchlist", { headers: hdrs() });
+      if (err) { listEl.innerHTML = `<p class="text-sm text-red-400">${esc(err)}</p>`; return; }
+      if (!r.ok) { listEl.innerHTML = `<p class="text-sm text-red-400">${esc(apiMsg(d))}</p>`; return; }
+      items = d; editingId = null; paintList();
+    }
+
+    async function loadAdmin() {
+      adminList.innerHTML = '<p class="text-sm text-[#888]">Loading...</p>';
+      const { r, d, err } = await req("/watchlist/admin", { headers: hdrs() });
+      if (err) { adminList.innerHTML = `<p class="text-sm text-red-400">${esc(err)}</p>`; return; }
+      if (!r.ok) { adminList.innerHTML = `<p class="text-sm text-red-400">${esc(apiMsg(d))}</p>`; return; }
+      const map = {};
+      d.forEach((it) => { (map[it.user_email] ||= []).push(it); });
+      const emails = Object.keys(map).sort();
+      adminList.innerHTML = emails.length ? emails.map((em) => `<div class="space-y-3"><h3 class="text-sm font-medium">${esc(em)}</h3><ul class="space-y-2">${map[em].map((it) => `<li class="flex gap-3 rounded border border-[#2a2a2a] bg-[#1a1a1a] px-4 py-2.5 text-sm"><span class="uppercase">${esc(it.symbol)}</span><span class="text-[#888]">${price(it.price)}</span></li>`).join("")}</ul></div>`).join("") : '<p class="text-sm text-[#888]">No items.</p>';
+    }
+
+    authToggle.onclick = () => setAuthMode(authMode === "login" ? "register" : "login");
+    $("logout-btn").onclick = () => { token = null; isAdmin = false; editingId = null; items = []; authForm.reset(); setAuthMode("login"); showAuth(); };
+
+    authForm.onsubmit = async (e) => {
+      e.preventDefault(); show(authErr, ""); show(authOk, ""); btnLoad(authSubmit, true);
+      const body = JSON.stringify({ email: authEmail.value.trim(), password: authPass.value });
+      const path = authMode === "register" ? "/auth/register" : "/auth/token";
+      const { r, d, err } = await req(path, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      btnLoad(authSubmit, false);
+      if (err) { show(authErr, err); return; }
+      if (authMode === "register") {
+        if (r.status === 201 || r.ok) { show(authOk, "Account created. Please login."); setAuthMode("login"); authForm.reset(); return; }
+        show(authErr, apiMsg(d)); return;
+      }
+      if (!r.ok) { show(authErr, "Invalid email or password"); return; }
+      token = d.access_token;
+      const chk = await req("/watchlist/admin", { headers: hdrs() });
+      isAdmin = chk.r && chk.r.status === 200;
+      showDash();
+    };
+
+    addForm.onsubmit = async (e) => {
+      e.preventDefault(); const sym = addInput.value.trim(); if (!sym) return;
+      show(addErr, ""); btnLoad(addBtn, true);
+      const { r, d, err } = await req("/watchlist", { method: "POST", headers: hdrs(), body: JSON.stringify({ symbol: sym }) });
+      btnLoad(addBtn, false);
+      if (err) { show(addErr, err); return; }
+      if (!r.ok) { show(addErr, apiMsg(d)); return; }
+      addInput.value = ""; await loadList();
+    };
+
+    listEl.onclick = async (e) => {
+      const b = e.target.closest("[data-act]"); if (!b) return;
+      const row = b.closest("[data-id]"), id = row.dataset.id, act = b.dataset.act;
+      const rowErr = (t) => show(row.querySelector("[data-err]"), t);
+      if (act === "edit") { editingId = id; paintList(); row.querySelector("[data-inp]")?.focus(); return; }
+      if (act === "del") {
+        btnLoad(b, true); rowErr("");
+        const { r, d, err } = await req(`/watchlist/${id}`, { method: "DELETE", headers: hdrs() });
+        btnLoad(b, false);
+        if (err) { rowErr(err); return; }
+        if (!r.ok) { rowErr(apiMsg(d)); return; }
+        await loadList(); return;
+      }
+      if (act === "save") {
+        const sym = row.querySelector("[data-inp]")?.value.trim(); if (!sym) return;
+        btnLoad(b, true); rowErr("");
+        const { r, d, err } = await req(`/watchlist/${id}`, { method: "PUT", headers: hdrs(), body: JSON.stringify({ symbol: sym, item_id: id }) });
+        btnLoad(b, false);
+        if (err) { rowErr(err); return; }
+        if (!r.ok) { rowErr(apiMsg(d)); return; }
+        await loadList();
+      }
+    };
+
+    setAuthMode("login"); showAuth();
+  </script>
+</body>
+</html>
