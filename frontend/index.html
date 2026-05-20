@@ -113,7 +113,7 @@
 
     async function loadList() {
       listEl.innerHTML = '<p class="text-sm text-[#888]">Loading...</p>'; show(addErr, "");
-      const { r, d, err } = await req("/watchlist", { headers: hdrs() });
+      const { r, d, err } = await req("/watchlist/", { headers: hdrs() });
       if (err) { listEl.innerHTML = `<p class="text-sm text-red-400">${esc(err)}</p>`; return; }
       if (!r.ok) { listEl.innerHTML = `<p class="text-sm text-red-400">${esc(apiMsg(d))}</p>`; return; }
       items = d; editingId = null; paintList();
@@ -154,7 +154,7 @@
     addForm.onsubmit = async (e) => {
       e.preventDefault(); const sym = addInput.value.trim(); if (!sym) return;
       show(addErr, ""); btnLoad(addBtn, true);
-      const { r, d, err } = await req("/watchlist", { method: "POST", headers: hdrs(), body: JSON.stringify({ symbol: sym }) });
+      const { r, d, err } = await req("/watchlist/", { method: "POST", headers: hdrs(), body: JSON.stringify({ symbol: sym }) });
       btnLoad(addBtn, false);
       if (err) { show(addErr, err); return; }
       if (!r.ok) { show(addErr, apiMsg(d)); return; }
