@@ -26,3 +26,8 @@ class WatchlistDelete(BaseModel):
 class WatchlistOut(BaseModel):
     id: uuid.UUID
     symbol: str
+
+class WatchlistAdminOut(BaseModel):
+    id: uuid.UUID
+    symbol: str
+    user_email: str

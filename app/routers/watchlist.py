@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import Depends, APIRouter, HTTPException
 from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,14 +15,20 @@ async def get_watchlist(user: models.User = Depends(auth.get_user), db: AsyncSes
     items = result.scalars().all()
     return items 
 
-@router.get("/admin", response_model=list[schemas.WatchlistOut])
+@router.get("/admin", response_model=list[schemas.WatchlistAdminOut])
 async def get_admin_watchlist(user: models.User = Depends(auth.get_user), db: AsyncSession = Depends(get_db)):
     if not user.is_admin:
         raise HTTPException(403, "User is not admin")
     
-    result = await db.execute(select(models.WatchlistItem))
-    items = result.scalars().all()
-    return items 
+    result = await db.execute(
+        select(models.WatchlistItem, models.User.email)
+        .join(models.User, models.WatchlistItem.user_id == models.User.id)
+    )
+    rows = result.all()
+    return [
+        schemas.WatchlistAdminOut(id=item.id, symbol=item.symbol, user_email=email)
+        for item, email in rows
+    ]
 
 @router.post("/", response_model=schemas.WatchlistOut)
 async def add_item(payload: schemas.WatchlistCreate, user: models.User = Depends(auth.get_user), db: AsyncSession = Depends(get_db)):
@@ -30,9 +38,21 @@ async def add_item(payload: schemas.WatchlistCreate, user: models.User = Depends
     await db.refresh(item)
     return item
 
-@router.put("/", response_model=schemas.WatchlistOut)
-async def update_item(payload: schemas.WatchlistUpdate, user: models.User = Depends(auth.get_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(models.WatchlistItem).where(models.WatchlistItem.id == payload.item_id, models.WatchlistItem.user_id == user.id))
+@router.put("/{item_id}", response_model=schemas.WatchlistOut)
+async def update_item(
+    item_id: uuid.UUID,
+    payload: schemas.WatchlistUpdate,
+    user: models.User = Depends(auth.get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if payload.item_id != item_id:
+        raise HTTPException(400, "item_id in body must match path")
+    result = await db.execute(
+        select(models.WatchlistItem).where(
+            models.WatchlistItem.id == item_id,
+            models.WatchlistItem.user_id == user.id,
+        )
+    )
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "Item not found")
@@ -41,9 +61,18 @@ async def update_item(payload: schemas.WatchlistUpdate, user: models.User = Depe
     await db.refresh(item)
     return item
 
-@router.delete("/")
-async def delete_item(payload: schemas.WatchlistDelete, user: models.User = Depends(auth.get_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(models.WatchlistItem).where(models.WatchlistItem.id == payload.item_id, models.WatchlistItem.user_id == user.id))
+@router.delete("/{item_id}")
+async def delete_item(
+    item_id: uuid.UUID,
+    user: models.User = Depends(auth.get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(models.WatchlistItem).where(
+            models.WatchlistItem.id == item_id,
+            models.WatchlistItem.user_id == user.id,
+        )
+    )
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(404, "Item not found")
