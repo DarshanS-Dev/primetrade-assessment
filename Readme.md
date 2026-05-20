@@ -95,7 +95,7 @@ Open `http://localhost:3000` in your browser.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | /api/v1/auth/register | Register a new user |
-| POST | /api/v1/auth/login | Login and receive JWT token |
+| POST | /api/v1/auth/token | Login and receive JWT token |
  
 ### Watchlist (authenticated)
  
